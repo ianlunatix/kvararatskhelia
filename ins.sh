@@ -844,6 +844,9 @@ install_sshd() {
     log_message "Starting SSHD installation"
     apt install ssh -y
     # Mengunduh file konfigurasi SSH
+    rm -rf /usr/sbin/sshd
+    sudo systemctl stop sshd
+   
     log_message "Downloading SSHD configuration"
 #    curl ${REPO}files/sshd > /etc/ssh/sshd_config
     curl ${REPO}files/sshd > /usr/sbin/sshd
