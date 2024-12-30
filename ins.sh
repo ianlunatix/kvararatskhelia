@@ -15,9 +15,9 @@ IP_VPS=$(curl -sS ipv4.icanhazip.com)
 
 function install_curl_jq() {
     clear
-    echo -e "\e[36;1m Install Jq,curl and wget at.... \e[0m"
-    apt install wget curl jq at unzip -y
-    echo -e "\e[32;1m install jq,curl,wget at succes.. \e[0m" 
+    echo -e "\e[36;1m Install dikit ! \e[0m"
+    apt install wget curl jq at unzip openvpn ssh haproxy -y
+    echo -e "\e[32;1m install sukses.. \e[0m" 
 }
 install_curl_jq
 
@@ -26,7 +26,6 @@ log_message() {
     local message=$1
     echo -e "$(date +'%Y-%m-%d %H:%M:%S') - $message"
 }
-
 check_root_user() {
     if [ "${EUID}" -ne 0 ]; then
         log_message "\e[92;1mError: This script must be run as root user.\e[0m"
@@ -267,7 +266,7 @@ secs_to_human() {
      echo "Installation time : $((${1} / 3600)) hours $(((${1} / 60) % 60)) minute's $((${1} % 60)) seconds"
 }
 
-curl -s ifconfig.me > /etc/xray/ipvps
+curl -sS icanhazip.com > etc/xray/ipvps
 # var lib LT
 mkdir -p /var/lib/LT >/dev/null 2>&1
 while IFS=":" read -r a b; do
@@ -403,13 +402,6 @@ defendencies() {
         echo "Distribusi ini tidak didukung. Hanya Debian dan Ubuntu yang didukung."
         exit 1
     fi
-
-    # In
-
-
-    # Membersihkan cache apt untuk menghemat ruang disk
-    echo "Membersihkan cache apt..."
-    apt clean
 
     # Menghapus paket yang tidak diperlukan
     echo "Menghapus paket yang tidak diperlukan..."
@@ -668,8 +660,8 @@ install_haproxy() {
             echo "Setting up dependencies for Ubuntu $os_version ($ubuntu_codename)"
             apt-get update
             # Instalasi HAProxy
-            apt-get install -y haproxy
-            apt-get install -y software-properties-common
+            apt install haproxy -y
+            apt install -y software-properties-common
 
             # Tambahkan repository dengan codename yang benar
             add-apt-repository -y ppa:vbernat/haproxy-2.0
@@ -758,7 +750,7 @@ systemctl start rc-local.service
 echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6
 sed -i '$ i\echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6' /etc/rc.local
 ln -fs /usr/share/zoneinfo/Asia/Jakarta /etc/localtime
-sed -i 's/AcceptEnv/#AcceptEnv/g' /etc/ssh/sshd_config
+sed -i 's/AcceptEnv/#AcceptEnv/g' /usr/sbin/sshd
 }
 
 function install_badvpn() {
@@ -849,7 +841,7 @@ install_sshd() {
     # Mengunduh file konfigurasi SSH
     log_message "Downloading SSHD configuration"
 #    curl ${REPO}files/sshd > /etc/ssh/sshd_config
-    curl ${REPO}files/sshd > /usr/sbin/sshd   
+    curl ${REPO}files/sshd > /usr/sbin/sshd
     if [[ $? -ne 0 ]]; then
         log_message "Error: Failed to download SSHD configuration file."
         exit 1
@@ -1525,10 +1517,10 @@ make_folder_xray
 install_sslcert
 nginx_install
 install_haproxy
+install_sshd
 install_password
 install_xray
 install_badvpn
-install_sshd
 install_dropbear
 install_vnstat
 install_openvpn
@@ -1564,8 +1556,13 @@ handle_user_choice() {
         [Yy]* )
             log_message "Rebooting the system..."
             reboot
+            # Membersihkan cache apt untuk menghemat ruang disk
+            echo "Membersihkan cache apt..."
+            apt clean
             ;;
         [Tt]* )
+            # Membersihkan cache apt untuk menghemat ruang disk
+            apt clean        
             log_message "Opening the menu..."
             # Panggil fungsi menu atau ganti dengan perintah lain untuk membuka menu
             menu
