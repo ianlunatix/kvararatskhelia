@@ -391,10 +391,12 @@ defendencies() {
     if [[ "$OS_NAME" == "Debian" ]]; then
         echo "Mengupdate dan mengupgrade sistem..."       
         apt update -y && apt upgrade -y
+        apt install chrony -y
         apt install -y "${packages[@]}"
     elif [[ "$OS_NAME" == "Ubuntu" ]]; then
         sudo apt-get update -y && sudo apt-get upgrade -y
         apt-get install -y "${packages[@]}"
+        sudo apt-get install chrony -y
     else
         echo "Distribusi ini tidak didukung. Hanya Debian dan Ubuntu yang didukung."
         exit 1
@@ -494,8 +496,7 @@ install_sslcert() {
     # Menyesuaikan izin file kunci SSL
     echo "Mengatur izin file kunci SSL..."
     chmod 600 /etc/xray/xray.key
-     
-    systemctl restart xray  
+    
     echo "Sertifikat SSL berhasil dipasang untuk domain $domain."
 }
 
@@ -622,8 +623,8 @@ print_message "Reloading systemd and enabling services"
 systemctl daemon-reload
 systemctl enable xray
 systemctl enable runn
-systemctl start xray
-systemctl start runn
+systemctl resstart xray
+systemctl restart runn
 
 print_message "Xray installation and configuration completed successfully."
 
@@ -731,6 +732,13 @@ debconf-set-selections <<<"keyboard-configuration keyboard-configuration/variant
 debconf-set-selections <<<"keyboard-configuration keyboard-configuration/variant select English"
 debconf-set-selections <<<"keyboard-configuration keyboard-configuration/xkb-keymap select "
 cd
+
+END
+cat > /etc/rc.local <<-END
+exit 0
+END
+chmod +x /etc/rc.local
+
 cat > /etc/systemd/system/rc-local.service <<-END
 [Unit]
 Description=/etc/rc.local
@@ -744,13 +752,10 @@ RemainAfterExit=yes
 SysVStartPriority=99
 [Install]
 WantedBy=multi-user.target
-END
-cat > /etc/rc.local <<-END
-exit 0
-END
-chmod +x /etc/rc.local
+
 systemctl enable rc-local
 systemctl start rc-local.service
+
 echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6
 sed -i '$ i\echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6' /etc/rc.local
 ln -fs /usr/share/zoneinfo/Asia/Jakarta /etc/localtime
@@ -1151,14 +1156,11 @@ restart_services() {
     # Daftar layanan yang akan direstart
     services=(
         "nginx"
-        "openvpn"
         "ssh"
         "dropbear"
         "fail2ban"
         "vnstat"
-        "haproxy"
         "cron"
-        "xray"
         "rc-local"
         "ws"
         "atd"
@@ -1190,7 +1192,7 @@ restart_services() {
 
     # Pembersihan file tidak diperlukan
     log_message "Cleaning up unnecessary files"
-    rm -f /root/openvpn /root/key.pem /root/cert.pem
+    rm -f /root/key.pem /root/cert.pem
 
     # Membersihkan riwayat bash dan menonaktifkan pencatatan historinya
     log_message "Clearing bash history"
