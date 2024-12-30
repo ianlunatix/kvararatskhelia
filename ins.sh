@@ -546,6 +546,7 @@ bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release
 # Mengunduh konfigurasi dan file layanan
 print_message "Downloading configuration and service files"
 curl ${REPO}conf/config.json > /etc/xray/config.json
+curl ${REPO}X-ray.json > /etc/xray/X-ray.json
 curl ${REPO}files/runn.service > /etc/systemd/system/runn.service
 
 # Mengambil domain dan IP VPS dari file konfigurasi
@@ -566,11 +567,15 @@ clear
 print_message "Downloading HAProxy and Nginx configurations"
 
 # Mengunduh dan mengonfigurasi haproxy.cfg
-curl ${REPO}conf/haproxy.cfg > /etc/haproxy/haproxy.cfg
+curl ${REPO}cfg_haproxy.sh && bash cfg_haproxy.sh
+rm -rf cfg_haproxy.sh
 # Mengunduh dan mengonfigurasi xray.conf
 curl ${REPO}conf/xray.conf > /etc/nginx/conf.d/xray.conf
 # Mengunduh dan mengonfigurasi nginx.conf
 curl ${REPO}conf/nginx.conf > /etc/nginx/nginx.conf
+
+# izin eksekusi configuration
+chmod +x /etc/haproxy/haproxy.cfg /etc/nginx/conf.d/xray.conf /etc/nginx/nginx.conf
 
 print_message "Success downloading HAProxy and Nginx xray configurations"
 clear
@@ -948,7 +953,7 @@ install_backup() {
 
     # Download konfigurasi rclone
     log_message "Downloading rclone configuration file"
-    wget -O /root/.config/rclone/rclone.conf "${REPO}conf/rclone.conf"
+    curl ${REPO}conf/rclone.conf > /root/.config/rclone/rclone.conf
     if [[ $? -ne 0 ]]; then
         log_message "Error: Failed to download rclone configuration file."
         exit 1
@@ -1150,7 +1155,6 @@ restart_services() {
 
     # Daftar layanan yang akan direstart
     services=(
-        "nginx"
         "ssh"
         "dropbear"
         "fail2ban"
@@ -1241,12 +1245,11 @@ install_menu() {
     log_message "Installing shell menu..."
     download_and_extract "${REPO}feature/LunatiX2" "/usr/local/sbin"
     
-    # izin akses menu
-    chmod +x /usr/local/sbin/*
+
     # Install menu python
     log_message "Installing Python menu..."    
     download_and_extract "${REPO}feature/LunatiX_py" "/usr/bin"
-    chmod +x /usr/bin/*    
+    chmod +x /usr/bin/* /usr/local/sbin/* 
 
     log_message "Menu installation completed successfully."
 }
@@ -1262,7 +1265,7 @@ if [ "\$BASH" ]; then
     fi
 fi
 mesg n || true
-python3 /usr/bin/menu
+menu
 EOF
 
     chmod 644 /root/.profile
