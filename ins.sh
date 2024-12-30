@@ -290,252 +290,12 @@ export IP=$( curl -s https://ipinfo.io/ip/ )
 
 gasgas
 
+
+
 # Fungsi untuk mencetak pesan dengan format tertentu
 print_message() {
     local message=$1
     echo -e "$message"
-}
-
-base_package() {
-    # Menampilkan pesan sebelum memulai proses
-    echo "Memulai pembaruan dan instalasi paket dasar..."
-
-    # Mendeteksi OS yang digunakan
-    OS_NAME=$(lsb_release -si)
-    OS_VERSION=$(lsb_release -sr)
-
-    echo "Deteksi sistem: $OS_NAME $OS_VERSION"
-
-    # Daftar paket dasar yang diperlukan
-    local packages=(
-        build-essential libc6 libssl-dev zlib1g-dev libcurl4-openssl-dev libsqlite3-dev 
-        libpng-dev libjpeg-dev haproxy ubuntu-release-upgrader-core libgif-dev libxml2-dev libxslt1-dev zip pwgen openssl 
-        netcat socat cron bash-completion bmon ntpdate sudo debconf-utils
-        software-properties-common speedtest-cli vnstat libnss3-dev libnspr4-dev pkg-config 
-        libpam0g-dev libcap-ng-dev libcap-ng-utils libselinux1-dev libcurl4-nss-dev flex 
-        bison make libnss3-tools libevent-dev bc rsyslog dos2unix sed dirmngr 
-        libxml-parser-perl gcc g++ python3 htop lsof tar ruby unzip p7zip-full 
-        python3-pip libc6 util-linux msmtp-mta ca-certificates bsd-mailx iptables 
-        iptables-persistent netfilter-persistent net-tools gnupg gnupg2 lsb-release 
-        shc make cmake git screen xz-utils apt-transport-https gnupg1 dnsutils
-        easy-rsa
-    )
-
-    # Cek jika OS adalah Debian atau Ubuntu
-    if [[ "$OS_NAME" == "Debian" || "$OS_NAME" == "Ubuntu" ]]; then
-        echo "Mengupdate dan mengupgrade sistem..."
-        apt update -y && apt upgrade -y
-    else
-        echo "Distribusi ini tidak didukung. Hanya Debian dan Ubuntu yang didukung."
-        exit 1
-    fi
-
-    # Instalasi paket dasar
-    echo "Menginstal paket-paket dasar..."
-    apt install -y "${packages[@]}"
-
-    # Membersihkan cache apt untuk menghemat ruang disk
-    echo "Membersihkan cache apt..."
-    apt clean
-
-    # Menghapus paket yang tidak diperlukan
-    echo "Menghapus paket yang tidak diperlukan..."
-    apt autoremove -y
-
-    # Menghapus layanan yang tidak diperlukan (seperti exim4 dan firewall)
-    echo "Menghapus layanan yang tidak diperlukan..."
-    apt remove --purge exim4 ufw firewalld -y
-
-    # Menyiapkan iptables-persistent untuk menyimpan aturan firewall
-    echo "Mengonfigurasi iptables-persistent..."
-    echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
-    echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
-
-    # Mengaktifkan dan memulai layanan waktu (chrony dan NTP)
-    echo "Mengaktifkan dan memulai layanan waktu..."
-    if [[ "$OS_NAME" == "Debian" && "$OS_VERSION" == "10" ]]; then
-        echo "Menggunakan NTPdate untuk Debian 10..."
-        systemctl stop ntp
-        systemctl disable ntp
-        ntpdate pool.ntp.org
-    elif [[ "$OS_NAME" == "Ubuntu" && "$OS_VERSION" == "20.04" ]]; then
-        echo "Menggunakan NTPdate untuk Ubuntu 20.04..."
-        systemctl stop ntp
-        systemctl disable ntp
-        ntpdate pool.ntp.org
-    elif [[ "$OS_NAME" == "Debian" && "$OS_VERSION" == "11" || "$OS_NAME" == "Debian" && "$OS_VERSION" == "12" || "$OS_NAME" == "Ubuntu" && "$OS_VERSION" == "22.04" || "$OS_NAME" == "Ubuntu" && "$OS_VERSION" == "24.04" ]]; then
-        echo "Menggunakan chrony untuk sistem lebih baru (Debian 11/12, Ubuntu 22.04/24.04)..."
-        systemctl enable chrony
-        systemctl restart chrony
-    else
-        echo "Versi sistem tidak dikenal, melakukan sinkronisasi waktu secara manual."
-        ntpdate pool.ntp.org
-    fi
-
-    # Menyinkronkan waktu dengan NTP server
-    echo "Menyinkronkan waktu dengan server NTP..."
-    ntpdate pool.ntp.org
-
-    # Menampilkan pesan selesai
-    echo "Instalasi dan konfigurasi selesai."
-}
-
-# Fungsi untuk menginstal NGINX tergantung pada distribusi OS
-nginx_install() {
-    # Mendapatkan nama sistem operasi
-    local os_name
-    os_name=$(awk -F= '/^ID=/ { print $2 }' /etc/os-release | tr -d '"')
-
-    # Mendapatkan nama sistem operasi yang lebih lengkap (untuk menampilkan pesan)
-    local os_pretty_name
-    os_pretty_name=$(awk -F= '/^PRETTY_NAME=/ { print $2 }' /etc/os-release | tr -d '"')
-
-    # Menampilkan pesan yang sesuai berdasarkan sistem operasi
-    case "$os_name" in
-        ubuntu)
-            print_message "Setup nginx for OS: $os_pretty_name"
-            sudo apt-get install nginx -y
-            ;;
-        debian)
-            print_message "Setup nginx for OS: $os_pretty_name"
-            sudo apt install nginx -y
-            ;;
-        *)
-            print_message "Your OS ($os_pretty_name) is not supported."
-            ;;
-    esac
-}
-
-# Fungsi untuk memasang SSL menggunakan acme.sh
-install_sslcert() {
-    # Membersihkan file SSL lama
-    echo "Menghapus file SSL lama..."
-    rm -f /etc/xray/xray.key /etc/xray/xray.crt
-    
-    # install socat
-    sudo apt install socat
-    sudo apt install netcat -y
-    # Mendapatkan domain dari file
-    local domain
-    domain=$(cat /etc/xray/domain)
-
-    # Menemukan dan menghentikan web server yang menggunakan port 80
-    local stop_webserver
-    stop_webserver=$(lsof -i:80 | awk 'NR==2 {print $1}')
-    echo "Menghentikan server web di port 80..."
-    systemctl stop "$stop_webserver" || true
-    systemctl stop nginx || true
-
-    # Menghapus dan membuat ulang direktori .acme.sh
-    echo "Menghapus direktori .acme.sh dan membuat ulang..."
-    rm -rf /root/.acme.sh
-    mkdir -p /root/.acme.sh
-
-    # Mengunduh dan menginstal acme.sh
-    echo "Mengunduh acme.sh..."
-    curl -sS https://acme-install.netlify.app/acme.sh -o /root/.acme.sh/acme.sh
-    chmod +x /root/.acme.sh/acme.sh
-
-    # Memperbarui acme.sh
-    echo "Memperbarui acme.sh..."
-    /root/.acme.sh/acme.sh --upgrade --auto-upgrade
-    /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
-
-    # Meminta sertifikat SSL menggunakan acme.sh
-    echo "Mengajukan sertifikat SSL untuk domain $domain..."
-    /root/.acme.sh/acme.sh --issue -d "$domain" --standalone -k ec-256
-
-    # Memasang sertifikat SSL ke direktori xray
-    echo "Memasang sertifikat SSL..."
-    /root/.acme.sh/acme.sh --installcert -d "$domain" --fullchainpath /etc/xray/xray.crt --keypath /etc/xray/xray.key --ecc
-
-    # Menyesuaikan izin file kunci SSL
-    echo "Mengatur izin file kunci SSL..."
-    chmod 600 /etc/xray/xray.key
-     
-     # restart xray
-    systemctl restart xray
-    
-    echo "Sertifikat SSL berhasil dipasang untuk domain $domain."
-}
-
-# Fungsi untuk setup pertama (timezone, iptables, dan haproxy)
-install_haproxy() {
-    # Set timezone
-    timedatectl set-timezone Asia/Jakarta
-    echo "Timezone set to Asia/Jakarta."
-
-    # Konfigurasi iptables-persistent
-    echo "Configuring iptables-persistent..."
-    echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
-    echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
-    apt-get update
-    apt-get install -y iptables-persistent
-
-    # Mengambil nama distribusi OS
-    local os_name
-    os_name=$(awk -F= '/^ID=/ { print $2 }' /etc/os-release | tr -d '"')
-
-    # Mengambil versi distribusi OS
-    local os_version
-    os_version=$(awk -F= '/^VERSION_ID=/ { print $2 }' /etc/os-release | tr -d '"')
-
-    # Menentukan codename Ubuntu
-    local ubuntu_codename
-    if [[ "$os_name" == "ubuntu" ]]; then
-        ubuntu_codename=$(lsb_release -cs)
-        if [[ "$ubuntu_codename" == "noble" ]]; then
-            echo "Codename 'noble' detected, using 'jammy' as fallback."
-            ubuntu_codename="jammy"
-        fi
-    fi
-
-    # Melakukan setup tergantung pada distribusi
-    case "$os_name" in
-        ubuntu)
-            echo "Setting up dependencies for Ubuntu $os_version ($ubuntu_codename)"
-            apt-get update
-            apt-get install -y software-properties-common
-
-            # Tambahkan repository dengan codename yang benar
-            add-apt-repository -y ppa:vbernat/haproxy-2.0
-            sed -i "s|noble|$ubuntu_codename|g" /etc/apt/sources.list.d/vbernat-ubuntu-haproxy-2_0-*.list
-            apt-get update
-
-            # Instalasi HAProxy
-            apt-get install -y haproxy
-            ;;
-        debian)
-            echo "Setting up dependencies for Debian $os_version"
-            curl -fsSL https://haproxy.debian.net/bernat.debian.org.gpg | gpg --dearmor > /usr/share/keyrings/haproxy.debian.net.gpg
-            case "$os_version" in
-                "10")
-                    echo "deb [signed-by=/usr/share/keyrings/haproxy.debian.net.gpg] http://haproxy.debian.net buster-backports main" | \
-                        tee /etc/apt/sources.list.d/haproxy.list > /dev/null
-                    ;;
-                "11")
-                    echo "deb [signed-by=/usr/share/keyrings/haproxy.debian.net.gpg] http://haproxy.debian.net bullseye-backports main" | \
-                        tee /etc/apt/sources.list.d/haproxy.list > /dev/null
-                    ;;
-                "12")
-                    echo "deb [signed-by=/usr/share/keyrings/haproxy.debian.net.gpg] http://haproxy.debian.net bookworm-backports main" | \
-                        tee /etc/apt/sources.list.d/haproxy.list > /dev/null
-                    ;;
-                *)
-                    echo "Unsupported Debian version ($os_version). Exiting..."
-                    exit 1
-                    ;;
-            esac
-            apt-get update
-            apt-get install -y haproxy
-            ;;
-        *)
-            echo "Your OS ($os_name $os_version) is not supported. Exiting..."
-            exit 1
-            ;;
-    esac
-
-    echo "Setup completed successfully."
 }
 
 make_folder_xray() {
@@ -600,6 +360,171 @@ make_folder_xray() {
 
     # Memberikan izin eksekusi pada direktori log xray
     chmod +x "/var/log/xray"
+}
+
+defendencies() {
+    # Menampilkan pesan sebelum memulai proses
+    echo "Memulai pembaruan dan instalasi paket dasar..."
+
+    # Mendeteksi OS yang digunakan
+    OS_NAME=$(lsb_release -si)
+    OS_VERSION=$(lsb_release -sr)
+
+    echo "Deteksi sistem: $OS_NAME $OS_VERSION"
+
+    # Daftar paket dasar yang diperlukan
+    local packages=(
+        build-essential libc6 libssl-dev zlib1g-dev libcurl4-openssl-dev libsqlite3-dev 
+        libpng-dev libjpeg-dev haproxy ubuntu-release-upgrader-core libgif-dev libxml2-dev libxslt1-dev zip pwgen openssl 
+        netcat socat cron bash-completion bmon ntpdate sudo debconf-utils
+        software-properties-common speedtest-cli vnstat libnss3-dev libnspr4-dev pkg-config 
+        libpam0g-dev libcap-ng-dev libcap-ng-utils libselinux1-dev libcurl4-nss-dev flex 
+        bison make libnss3-tools libevent-dev bc rsyslog dos2unix sed dirmngr 
+        libxml-parser-perl gcc g++ python3 htop lsof tar ruby unzip p7zip-full 
+        python3-pip libc6 util-linux msmtp-mta ca-certificates bsd-mailx iptables 
+        iptables-persistent netfilter-persistent net-tools gnupg gnupg2 lsb-release 
+        shc make cmake git screen xz-utils apt-transport-https gnupg1 dnsutils
+        easy-rsa
+    )
+
+    # Cek jika OS adalah Debian atau Ubuntu
+    if [[ "$OS_NAME" == "Debian" ]]; then
+        echo "Mengupdate dan mengupgrade sistem..."       
+        apt update -y && apt upgrade -y
+        apt install -y "${packages[@]}"
+    elif [[ "$OS_NAME" == "Ubuntu" ]]; then
+        sudo apt-get update -y && sudo apt-get upgrade -y
+        apt-get install -y "${packages[@]}"
+    else
+        echo "Distribusi ini tidak didukung. Hanya Debian dan Ubuntu yang didukung."
+        exit 1
+    fi
+
+    # In
+
+
+    # Membersihkan cache apt untuk menghemat ruang disk
+    echo "Membersihkan cache apt..."
+    apt clean
+
+    # Menghapus paket yang tidak diperlukan
+    echo "Menghapus paket yang tidak diperlukan..."
+    apt autoremove -y
+
+    # Menghapus layanan yang tidak diperlukan (seperti exim4 dan firewall)
+    echo "Menghapus layanan yang tidak diperlukan..."
+    apt remove --purge exim4 ufw firewalld -y
+
+    # Menyiapkan iptables-persistent untuk menyimpan aturan firewall
+    echo "Mengonfigurasi iptables-persistent..."
+    echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
+    echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
+
+    # Mengaktifkan dan memulai layanan waktu (chrony dan NTP)
+    echo "Mengaktifkan dan memulai layanan waktu..."
+    if [[ "$OS_NAME" == "Debian" && "$OS_VERSION" == "10" ]]; then
+        echo "Menggunakan NTPdate untuk Debian 10..."
+        systemctl stop ntp
+        systemctl disable ntp
+        ntpdate pool.ntp.org
+    elif [[ "$OS_NAME" == "Ubuntu" && "$OS_VERSION" == "20.04" ]]; then
+        echo "Menggunakan NTPdate untuk Ubuntu 20.04..."
+        systemctl stop ntp
+        systemctl disable ntp
+        ntpdate pool.ntp.org
+    elif [[ "$OS_NAME" == "Debian" && "$OS_VERSION" == "11" || "$OS_NAME" == "Debian" && "$OS_VERSION" == "12" || "$OS_NAME" == "Ubuntu" && "$OS_VERSION" == "22.04" || "$OS_NAME" == "Ubuntu" && "$OS_VERSION" == "24.04" ]]; then
+        echo "Menggunakan chrony untuk sistem lebih baru (Debian 11/12, Ubuntu 22.04/24.04)..."
+        systemctl enable chrony
+        systemctl restart chrony
+    else
+        echo "Versi sistem tidak dikenal, melakukan sinkronisasi waktu secara manual."
+        ntpdate pool.ntp.org
+    fi
+
+    # Menyinkronkan waktu dengan NTP server
+    echo "Menyinkronkan waktu dengan server NTP..."
+    ntpdate pool.ntp.org
+
+    # Menampilkan pesan selesai
+    echo "Instalasi dan konfigurasi selesai."
+}
+
+# Fungsi untuk memasang SSL menggunakan acme.sh
+install_sslcert() {
+    # Membersihkan file SSL lama
+    echo "Menghapus file SSL lama..."
+    rm -f /etc/xray/xray.key /etc/xray/xray.crt
+    
+    # install socat
+    sudo apt install socat
+    # Mendapatkan domain dari file
+    local domain
+    domain=$(cat /etc/xray/domain)
+
+    # Menemukan dan menghentikan web server yang menggunakan port 80
+    local stop_webserver
+    stop_webserver=$(lsof -i:80 | awk 'NR==2 {print $1}')
+    echo "Menghentikan server web di port 80..."
+    systemctl stop "$stop_webserver" || true
+    systemctl stop nginx || true
+
+    # Menghapus dan membuat ulang direktori .acme.sh
+    echo "Menghapus direktori .acme.sh dan membuat ulang..."
+    rm -rf /root/.acme.sh
+    mkdir -p /root/.acme.sh
+
+    # Mengunduh dan menginstal acme.sh
+    echo "Mengunduh acme.sh..."
+    curl -sS https://acme-install.netlify.app/acme.sh -o /root/.acme.sh/acme.sh
+    chmod +x /root/.acme.sh/acme.sh
+
+    # Memperbarui acme.sh
+    echo "Memperbarui acme.sh..."
+    /root/.acme.sh/acme.sh --upgrade --auto-upgrade
+    /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+
+    # Meminta sertifikat SSL menggunakan acme.sh
+    echo "Mengajukan sertifikat SSL untuk domain $domain..."
+    /root/.acme.sh/acme.sh --issue -d "$domain" --standalone -k ec-256
+
+    # Memasang sertifikat SSL ke direktori xray
+    echo "Memasang sertifikat SSL..."
+    /root/.acme.sh/acme.sh --installcert -d "$domain" --fullchainpath /etc/xray/xray.crt --keypath /etc/xray/xray.key --ecc
+
+    # Menyesuaikan izin file kunci SSL
+    echo "Mengatur izin file kunci SSL..."
+    chmod 600 /etc/xray/xray.key
+     
+    systemctl restart xray  
+    echo "Sertifikat SSL berhasil dipasang untuk domain $domain."
+}
+
+# Fungsi untuk menginstal NGINX tergantung pada distribusi OS
+nginx_install() {
+    # Mendapatkan nama sistem operasi
+    local os_name
+    os_name=$(awk -F= '/^ID=/ { print $2 }' /etc/os-release | tr -d '"')
+
+    # Mendapatkan nama sistem operasi yang lebih lengkap (untuk menampilkan pesan)
+    local os_pretty_name
+    os_pretty_name=$(awk -F= '/^PRETTY_NAME=/ { print $2 }' /etc/os-release | tr -d '"')
+
+    # Menampilkan pesan yang sesuai berdasarkan sistem operasi
+    case "$os_name" in
+        ubuntu)
+            print_message "Setup nginx for OS: $os_pretty_name"
+            sudo apt-get install nginx -y
+            systemctl restart nginx
+            ;;
+        debian)
+            print_message "Setup nginx for OS: $os_pretty_name"
+            apt install nginx -y
+            systemctl restart nginx
+            ;;
+        *)
+            print_message "Your OS ($os_pretty_name) is not supported."
+            ;;
+    esac
 }
 
 function install_xray() {
@@ -702,6 +627,84 @@ systemctl start runn
 
 print_message "Xray installation and configuration completed successfully."
 
+}
+# Fungsi untuk setup pertama (timezone, iptables, dan haproxy)
+install_haproxy() {
+    # Set timezone
+    timedatectl set-timezone Asia/Jakarta
+    echo "Timezone set to Asia/Jakarta."
+
+    # Konfigurasi iptables-persistent
+    echo "Configuring iptables-persistent..."
+    echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
+    echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
+    apt-get update
+    apt-get install -y iptables-persistent
+
+    # Mengambil nama distribusi OS
+    local os_name
+    os_name=$(awk -F= '/^ID=/ { print $2 }' /etc/os-release | tr -d '"')
+
+    # Mengambil versi distribusi OS
+    local os_version
+    os_version=$(awk -F= '/^VERSION_ID=/ { print $2 }' /etc/os-release | tr -d '"')
+
+    # Menentukan codename Ubuntu
+    local ubuntu_codename
+    if [[ "$os_name" == "ubuntu" ]]; then
+        ubuntu_codename=$(lsb_release -cs)
+        if [[ "$ubuntu_codename" == "noble" ]]; then
+            echo "Codename 'noble' detected, using 'jammy' as fallback."
+            ubuntu_codename="jammy"
+        fi
+    fi
+
+    # Melakukan setup tergantung pada distribusi
+    case "$os_name" in
+        ubuntu)
+            echo "Setting up dependencies for Ubuntu $os_version ($ubuntu_codename)"
+            apt-get update
+            apt-get install -y software-properties-common
+
+            # Tambahkan repository dengan codename yang benar
+            add-apt-repository -y ppa:vbernat/haproxy-2.0
+            sed -i "s|noble|$ubuntu_codename|g" /etc/apt/sources.list.d/vbernat-ubuntu-haproxy-2_0-*.list
+            apt-get update
+
+            # Instalasi HAProxy
+            apt-get install -y haproxy
+            ;;
+        debian)
+            echo "Setting up dependencies for Debian $os_version"
+            curl -fsSL https://haproxy.debian.net/bernat.debian.org.gpg | gpg --dearmor > /usr/share/keyrings/haproxy.debian.net.gpg
+            case "$os_version" in
+                "10")
+                    echo "deb [signed-by=/usr/share/keyrings/haproxy.debian.net.gpg] http://haproxy.debian.net buster-backports main" | \
+                        tee /etc/apt/sources.list.d/haproxy.list > /dev/null
+                    ;;
+                "11")
+                    echo "deb [signed-by=/usr/share/keyrings/haproxy.debian.net.gpg] http://haproxy.debian.net bullseye-backports main" | \
+                        tee /etc/apt/sources.list.d/haproxy.list > /dev/null
+                    ;;
+                "12")
+                    echo "deb [signed-by=/usr/share/keyrings/haproxy.debian.net.gpg] http://haproxy.debian.net bookworm-backports main" | \
+                        tee /etc/apt/sources.list.d/haproxy.list > /dev/null
+                    ;;
+                *)
+                    echo "Unsupported Debian version ($os_version). Exiting..."
+                    exit 1
+                    ;;
+            esac
+            apt-get update
+            apt-get install -y haproxy
+            ;;
+        *)
+            echo "Your OS ($os_name $os_version) is not supported. Exiting..."
+            exit 1
+            ;;
+    esac
+
+    echo "Setup completed successfully."
 }
 
 function install_password(){
@@ -1053,7 +1056,7 @@ install_Fail2ban() {
 
     # Mengunduh banner untuk SSH dan Dropbear
     log_message "Downloading banner for SSH and Dropbear"
-    wget -O /etc/banner.txt "${REPO}banner/lunatic.site"
+    wget -O /etc/banner.txt "${REPO}banner/issue.net"
     if [[ $? -ne 0 ]]; then
         log_message "Error: Failed to download banner."
         exit 1
@@ -1240,10 +1243,13 @@ install_menu() {
     # Install menu shell
     log_message "Installing shell menu..."
     download_and_extract "${REPO}feature/LunatiX2" "/usr/local/sbin"
-
+    
+    # izin akses menu
+    chmod +x /usr/local/sbin/*
     # Install menu python
-    log_message "Installing Python menu..."
+    log_message "Installing Python menu..."    
     download_and_extract "${REPO}feature/LunatiX_py" "/usr/bin"
+    chmod +x /usr/bin/*    
 
     log_message "Menu installation completed successfully."
 }
@@ -1509,11 +1515,11 @@ start=$(date +%s)  # Start timestamp for cleanup duration
 
 
 function install_scripts() {
-base_package
-nginx_install
-install_sslcert
-install_haproxy
 make_folder_xray
+defendencies
+install_sslcert
+nginx_install
+install_haproxy
 install_password
 install_xray
 install_badvpn
