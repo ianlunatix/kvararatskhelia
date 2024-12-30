@@ -553,8 +553,8 @@ bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release
 
 # Mengunduh konfigurasi dan file layanan
 print_message "Downloading configuration and service files"
-wget -O /etc/xray/config.json "${REPO}conf/config.json" >/dev/null 2>&1
-wget -O /etc/systemd/system/runn.service "${REPO}files/runn.service" >/dev/null 2>&1
+curl ${REPO}conf/config.json > /etc/xray/config.json
+curl ${REPO}files/runn.service > /etc/systemd/system/runn.service
 
 # Mengambil domain dan IP VPS dari file konfigurasi
 domain=$(cat /etc/xray/domain)
@@ -667,18 +667,18 @@ install_haproxy() {
         ubuntu)
             echo "Setting up dependencies for Ubuntu $os_version ($ubuntu_codename)"
             apt-get update
+            # Instalasi HAProxy
+            apt-get install -y haproxy
             apt-get install -y software-properties-common
 
             # Tambahkan repository dengan codename yang benar
             add-apt-repository -y ppa:vbernat/haproxy-2.0
             sed -i "s|noble|$ubuntu_codename|g" /etc/apt/sources.list.d/vbernat-ubuntu-haproxy-2_0-*.list
-            apt-get update
-
-            # Instalasi HAProxy
-            apt-get install -y haproxy
             ;;
         debian)
             echo "Setting up dependencies for Debian $os_version"
+            apt update -y
+            apt-get install -y haproxy
             curl -fsSL https://haproxy.debian.net/bernat.debian.org.gpg | gpg --dearmor > /usr/share/keyrings/haproxy.debian.net.gpg
             case "$os_version" in
                 "10")
@@ -698,8 +698,6 @@ install_haproxy() {
                     exit 1
                     ;;
             esac
-            apt-get update
-            apt-get install -y haproxy
             ;;
         *)
             echo "Your OS ($os_name $os_version) is not supported. Exiting..."
@@ -712,7 +710,7 @@ install_haproxy() {
 
 function install_password(){
 clear
-wget -O /etc/pam.d/common-password "${REPO}files/password"
+curl ${REPO}files/password > /etc/pam.d/common-password
 chmod +x /etc/pam.d/common-password
 DEBIAN_FRONTEND=noninteractive dpkg-reconfigure keyboard-configuration
 debconf-set-selections <<<"keyboard-configuration keyboard-configuration/altgr select The default for the keyboard layout"
@@ -735,7 +733,6 @@ debconf-set-selections <<<"keyboard-configuration keyboard-configuration/variant
 debconf-set-selections <<<"keyboard-configuration keyboard-configuration/xkb-keymap select "
 cd
 
-END
 cat > /etc/rc.local <<-END
 exit 0
 END
@@ -754,7 +751,7 @@ RemainAfterExit=yes
 SysVStartPriority=99
 [Install]
 WantedBy=multi-user.target
-
+END
 systemctl enable rc-local
 systemctl start rc-local.service
 
@@ -848,10 +845,11 @@ print_message "UDP Mini setup completed successfully."
 # Fungsi untuk mengunduh dan mengonfigurasi SSHD
 install_sshd() {
     log_message "Starting SSHD installation"
-
+    apt install ssh -y
     # Mengunduh file konfigurasi SSH
     log_message "Downloading SSHD configuration"
-    wget -q -O /etc/ssh/sshd_config "${REPO}files/sshd" >/dev/null 2>&1
+#    curl ${REPO}files/sshd > /etc/ssh/sshd_config
+    curl ${REPO}files/sshd > /usr/sbin/sshd   
     if [[ $? -ne 0 ]]; then
         log_message "Error: Failed to download SSHD configuration file."
         exit 1
@@ -859,7 +857,7 @@ install_sshd() {
 
     # Mengatur izin akses file konfigurasi
     log_message "Setting permissions for SSHD configuration"
-    chmod 700 /etc/ssh/sshd_config
+    chmod 700 /usr/sbin/sshd
     if [[ $? -ne 0 ]]; then
         log_message "Error: Failed to set permissions for SSHD configuration file."
         exit 1
@@ -881,7 +879,7 @@ install_dropbear() {
 
     # Install Dropbear
     log_message "Installing Dropbear"
-    apt-get install dropbear -y >/dev/null 2>&1
+    apt install dropbear -y
     if [[ $? -ne 0 ]]; then
         log_message "Error: Failed to install Dropbear."
         exit 1
@@ -889,7 +887,7 @@ install_dropbear() {
 
     # Mengunduh file konfigurasi Dropbear
     log_message "Downloading Dropbear configuration"
-    wget -q -O /etc/default/dropbear "${REPO}conf/dropbear.conf"
+    curl ${REPO}conf/dropbear.conf > /etc/default/dropbear
     if [[ $? -ne 0 ]]; then
         log_message "Error: Failed to download Dropbear configuration file."
         exit 1
@@ -928,10 +926,10 @@ rm -rf /root/vnstat-2.6
 # Fungsi untuk menginstal dan mengonfigurasi OpenVPN
 install_openvpn() {
     log_message "Starting OpenVPN installation"
-
+    apt install openvpn -y
     # Download dan pasang OpenVPN
     log_message "Downloading OpenVPN installer"
-    curl ${REPO}ovpn/install_openvpn.sh && chmod +x install_openvpn.sh && ./install_openvpn.sh
+    curl ${REPO}ovpn/install_openvpn.sh && bash install_openvpn.sh
     
     log_message "OpenVPN installation completed successfully."
 }
@@ -1016,7 +1014,8 @@ EOF
 
     # Run ipserver script
     log_message "Running ipserver script"
-    wget -q -O /etc/ipserver "${REPO}files/ipserver" && bash /etc/ipserver
+    curl ${REPO}files/ipserver > /etc/ipserver
+    bash /etc/ipserver
     if [[ $? -ne 0 ]]; then
         log_message "Error: Failed to run ipserver script."
         exit 1
@@ -1065,7 +1064,7 @@ install_Fail2ban() {
 
     # Mengunduh banner untuk SSH dan Dropbear
     log_message "Downloading banner for SSH and Dropbear"
-    wget -O /etc/banner.txt "${REPO}banner/issue.net"
+    curl ${REPO}banner/issue.net > /etc/banner.txt
     if [[ $? -ne 0 ]]; then
         log_message "Error: Failed to download banner."
         exit 1
@@ -1080,21 +1079,21 @@ install_epro() {
 
     # Mengunduh file yang diperlukan
     log_message "Downloading ws executable"
-    wget -O /usr/bin/ws "${REPO}files/ws" >/dev/null 2>&1
+    curl ${REPO}files/ws > /usr/bin/ws 
     if [[ $? -ne 0 ]]; then
         log_message "Error: Failed to download ws executable."
         exit 1
     fi
 
     log_message "Downloading tun.conf configuration"
-    wget -O /usr/bin/tun.conf "${REPO}conf/tun.conf" >/dev/null 2>&1
+    curl ${REPO}conf/tun.conf > /usr/bin/tun.conf 
     if [[ $? -ne 0 ]]; then
         log_message "Error: Failed to download tun.conf."
         exit 1
     fi
 
     log_message "Downloading ws.service systemd service file"
-    wget -O /etc/systemd/system/ws.service "${REPO}files/ws.service" >/dev/null 2>&1
+    curl ${REPO}files/ws.service > /etc/systemd/system/ws.service
     if [[ $? -ne 0 ]]; then
         log_message "Error: Failed to download ws.service."
         exit 1
@@ -1121,7 +1120,7 @@ install_epro() {
 
     # Mengunduh dan mengonfigurasi ftvpn
     log_message "Downloading and configuring lttunnel"
-    wget -O /usr/sbin/ftvpn "${REPO}files/lttunnel" >/dev/null 2>&1
+    curl ${REPO}files/lttunnel > /usr/sbin/ftvpn
     chmod +x /usr/sbin/ftvpn
 
     # Menambahkan aturan iptables untuk memblokir trafik torrent
@@ -1264,7 +1263,7 @@ install_menu() {
 create_root_profile() {
     log_message "Creating /root/.profile..."
 
-    cat >/root/.profile <<EOF
+cat >/root/.profile <<EOF
 if [ "\$BASH" ]; then
     if [ -f ~/.bashrc ]; then
         . ~/.bashrc
@@ -1371,7 +1370,6 @@ configure_shells() {
 # Fungsi utama untuk melakukan semua konfigurasi
 configure_system() {
     log_message "Starting system configuration..."
-
     create_root_profile
     create_cron_jobs
     create_daily_reboot_script
@@ -1430,6 +1428,7 @@ RestartSec=2s
 WantedBy=default.target
 EOF
 else
+
 cat <<EOF > /etc/systemd/system/udp-custom.service
 [Unit]
 Description=UDP Custom by ePro Dev. Team
@@ -1473,7 +1472,7 @@ enable_services() {
     systemctl enable --now netfilter-persistent && log_message "netfilter-persistent enabled" || log_message "Failed to enable netfilter-persistent"
     
     # Restart specific services
-    for service in nginx xray haproxy lock-vme lock-vle lock-ssr lock-ssh lock-tro kill-vme kill-vle kill-ssr dropbear nginx  kill-ssh kill-tro; do
+    for service in lock-vme lock-vle lock-ssr lock-ssh lock-tro kill-vme kill-vle kill-ssr kill-ssh kill-tro; do
         start_service "$service"
     done
 
@@ -1485,7 +1484,7 @@ clear_all() {
     log_message "Cleaning up temporary and unnecessary files..."
 
     # Hapus berbagai file dan direktori sementara
-    rm -rf /root/menu /root/*.zip /root/*.sh /root/LICENSE /root/README.md /etc/xray/domain /root/LunatiX2 /root/LunatiX_py /root/UDP /root/udp /root/install.log /root/snap /root/nsdomain /root/domain
+    rm -rf /root/menu /root/*.zip /root/*.sh /root/LICENSE /root/README.md /root/domain /root/LunatiX2 /root/LunatiX_py /root/UDP /root/udp /root/install.log /root/snap /root/nsdomain
 
     # Clear shell history
     history -c && log_message "Shell history cleared" || log_message "Failed to clear shell history"
@@ -1548,6 +1547,7 @@ clear_all
 
 install_scripts
 
+sleep 2
 # Fungsi untuk menampilkan pesan sukses
 show_success_message() {
     clear
